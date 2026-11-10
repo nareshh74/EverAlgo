@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from datetime import UTC, datetime
@@ -96,23 +97,45 @@ async def _call_llm_for_episode(llm: LLMClient, rendered: str) -> dict[str, Any]
     """Call LLM and return validated episode dict.
 
     Uses brace-balanced extraction because the ``summary`` field may contain nested strings with
-    punctuation. Raises ``ValueError`` on missing JSON or missing required keys.
+    punctuation. Falls back deterministically if the LLM call times out or returns unparseable output.
     """
-    response = await llm.chat(messages=[LLMChatMessage(role="user", content=rendered)])
-    text = response.content
-    if "{" not in text and text.strip():
-        return {"title": "Session Note", "content": text.strip(), "summary": text.strip()[:200]}
-    json_str = _extract_json_object(text)
     try:
-        data: dict[str, Any] = json.loads(json_str, strict=False)
-    except json.JSONDecodeError:
-        fixed = re.sub(r'\\(?![/\"\\bfnrt]|u[0-9a-fA-F]{4})', r'\\\\', json_str)
-        data = json.loads(fixed, strict=False)
-    if "title" not in data or "content" not in data:
-        raise ValueError(f"Episode LLM response missing required keys: {data!r}")
-    if not str(data["content"]).strip():
-        raise ValueError(f"Episode LLM response has empty content: {data!r}")
-    return data
+        async with asyncio.timeout(25.0):
+            response = await llm.chat(messages=[LLMChatMessage(role="user", content=rendered)])
+        text = response.content
+        if "{" not in text and text.strip():
+            return {"title": "Session Note", "content": text.strip(), "summary": text.strip()[:200]}
+        json_str = _extract_json_object(text)
+        try:
+            data: dict[str, Any] = json.loads(json_str, strict=False)
+        except json.JSONDecodeError:
+            fixed = re.sub(r'\\(?![/\"\\bfnrt]|u[0-9a-fA-F]{4})', r'\\\\', json_str)
+            data = json.loads(fixed, strict=False)
+        if "title" not in data or "content" not in data:
+            raise ValueError(f"Episode LLM response missing required keys: {data!r}")
+        if not str(data["content"]).strip():
+            raise ValueError(f"Episode LLM response has empty content: {data!r}")
+        return data
+    except (TimeoutError, Exception):
+        return _deterministic_episode_from_rendered(rendered)
+
+
+def _deterministic_episode_from_rendered(rendered: str) -> dict[str, Any]:
+    """Build a deterministic episode dict from the rendered prompt when LLM fails or times out."""
+    matches = re.findall(r'"speaker":\s*([^\n,]+),\s*\n\s*"content":\s*(.+?)\n\s*\}', rendered, re.DOTALL)
+    if matches:
+        lines = [f"{spk.strip()}: {cnt.strip()}" for spk, cnt in matches if cnt.strip()]
+        body = "\n".join(lines).strip()
+        first_line = matches[0][1].strip().splitlines()[0][:80] if matches[0][1].strip() else "Session Note"
+        title = first_line or "Session Note"
+    else:
+        body = rendered[-1500:].strip() or "Session conversation recorded."
+        title = "Session Note"
+    return {
+        "title": title,
+        "content": body[:4000],
+        "summary": body[:200],
+    }
 
 
 def _extract_json_object(text: str) -> str:
