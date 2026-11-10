@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -99,8 +100,14 @@ async def _call_llm_for_episode(llm: LLMClient, rendered: str) -> dict[str, Any]
     """
     response = await llm.chat(messages=[LLMChatMessage(role="user", content=rendered)])
     text = response.content
+    if "{" not in text and text.strip():
+        return {"title": "Session Note", "content": text.strip(), "summary": text.strip()[:200]}
     json_str = _extract_json_object(text)
-    data: dict[str, Any] = json.loads(json_str)
+    try:
+        data: dict[str, Any] = json.loads(json_str, strict=False)
+    except json.JSONDecodeError:
+        fixed = re.sub(r'\\(?![/\"\\bfnrt]|u[0-9a-fA-F]{4})', r'\\\\', json_str)
+        data = json.loads(fixed, strict=False)
     if "title" not in data or "content" not in data:
         raise ValueError(f"Episode LLM response missing required keys: {data!r}")
     if not str(data["content"]).strip():

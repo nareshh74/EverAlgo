@@ -192,14 +192,28 @@ async def test_aextract_llm_error_propagates_immediately() -> None:
 
 
 async def test_aextract_invalid_json_raises_value_error() -> None:
-    """Unparseable LLM response raises ValueError immediately; retry is caller's job."""
-    bad_responses: list[str | ChatResponse] = [ChatResponse(content="not json at all", model="fake")]
+    """Unparseable/truncated JSON LLM response raises ValueError immediately; plain text falls back to Session Note."""
+    bad_responses: list[str | ChatResponse] = [ChatResponse(content='{"title": "unterminated', model="fake")]
     fake = FakeLLMClient(responses=bad_responses)
 
     with pytest.raises(ValueError):
         await EpisodeExtractor(llm=fake).aextract(_memcell(), sender_id="u_alice")
 
     assert fake.call_count == 1
+
+
+async def test_aextract_plain_text_fallback_and_windows_backslash_sanitizer() -> None:
+    r"""Plain text without braces falls back to Session Note; unescaped Windows backslashes in JSON are sanitized."""
+    plain_fake = FakeLLMClient(responses=[ChatResponse(content="Plain narrative summary", model="fake")])
+    ep_plain = await EpisodeExtractor(llm=plain_fake).aextract(_memcell(), sender_id="u_alice")
+    assert ep_plain.subject == "Session Note"
+    assert ep_plain.episode == "Plain narrative summary"
+
+    win_json = r'{"title": "Edited C:\Users\kumar\app.py", "content": "Updated C:\learn\project\main.py", "summary": "Fixed C:\data"}'
+    win_fake = FakeLLMClient(responses=[ChatResponse(content=win_json, model="fake")])
+    ep_win = await EpisodeExtractor(llm=win_fake).aextract(_memcell(), sender_id="u_alice")
+    assert r"C:\Users\kumar\app.py" in ep_win.subject
+    assert r"C:\learn\project\main.py" in ep_win.episode
 
 
 async def test_aextract_raises_on_empty_content() -> None:
