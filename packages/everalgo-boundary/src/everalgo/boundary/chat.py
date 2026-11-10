@@ -294,8 +294,14 @@ async def _call_llm_for_batch_boundary(llm: LLMClient, rendered: str, num_messag
     text = response.content
     match = re.search(r"\{[^{}]*\}", text, re.DOTALL)
     if not match:
+        if "boundaries" not in text:
+            return _BatchBoundaryResult(boundaries=[], should_wait=False)
         raise ValueError(f"No JSON object found in batch boundary LLM response: {text[:200]!r}")
-    data = json.loads(match.group())
+    try:
+        data = json.loads(match.group(), strict=False)
+    except json.JSONDecodeError:
+        fixed = re.sub(r'\\(?![/\"\\bfnrt]|u[0-9a-fA-F]{4})', r'\\\\', match.group())
+        data = json.loads(fixed, strict=False)
     raw_boundaries = data.get("boundaries", [])
     if not isinstance(raw_boundaries, list):
         raise ValueError(f"boundaries must be a list, got {type(raw_boundaries).__name__}")  # noqa: TRY004

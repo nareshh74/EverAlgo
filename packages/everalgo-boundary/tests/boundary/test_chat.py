@@ -244,15 +244,39 @@ async def test_empty_boundaries_list_yields_no_closed_cells() -> None:
 
 
 async def test_invalid_json_response_raises_value_error() -> None:
-    """Non-JSON response → ValueError immediately (fail-loud, no retry)."""
+    """Truncated JSON with 'boundaries' keyword → ValueError immediately; plain text falls back to empty boundaries."""
     msgs = _dialogue(2)
-    bad = ChatResponse(content="not json at all", model="fake")
+    bad = ChatResponse(content="boundaries: [1", model="fake")
     fake = FakeLLMClient(responses=[bad])
 
     with pytest.raises(ValueError, match="No JSON object found"):
         await detect_boundaries(msgs, llm=fake)
 
     assert fake.call_count == 1
+
+
+async def test_plain_text_response_falls_back_to_empty_boundaries() -> None:
+    """Non-JSON plain-text response without 'boundaries' falls back to no boundaries."""
+    msgs = _dialogue(2)
+    plain = ChatResponse(content="not json at all", model="fake")
+    fake = FakeLLMClient(responses=[plain])
+
+    result = await detect_boundaries(msgs, llm=fake)
+    assert result.cells == []
+    assert result.tail == msgs
+
+
+async def test_windows_backslash_in_batch_boundary_json_sanitized() -> None:
+    r"""Unescaped Windows backslash in reasoning field is sanitized rather than failing JSONDecodeError."""
+    msgs = _dialogue(3)
+    win = ChatResponse(
+        content=r'{"reasoning": "edited C:\Users\test\file.py", "boundaries": [2], "should_wait": false}',
+        model="fake",
+    )
+    fake = FakeLLMClient(responses=[win])
+
+    result = await detect_boundaries(msgs, llm=fake)
+    assert len(result.cells) == 1
 
 
 async def test_boundaries_not_list_in_json_raises_value_error() -> None:
