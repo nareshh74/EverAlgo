@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from everalgo.llm.protocols import LLMClient
 
 _UNESCAPED_BACKSLASH_RE = re.compile(r'\\(?![/\"\\bfnrt]|u[0-9a-fA-F]{4})')
+_PLAIN_NO_BOUNDARY_RE = re.compile(r"\b(no\s+boundaries|no\s+boundary|single\s+episode|same\s+episode)\b", re.IGNORECASE)
 
 
 class Reply(StrictOutputModel):
@@ -43,7 +44,7 @@ async def _call_llm_for_batch(llm: LLMClient, messages: list[LLMMessage]) -> Rep
         LLMOutputError: If the reply is not a valid batch output.
     """
     text = await llm.achat(messages=messages, response_format=Reply)
-    if "{" not in text and "boundaries" not in text:
+    if "{" not in text and _PLAIN_NO_BOUNDARY_RE.search(text):
         return Reply(reasoning="", boundaries=[])
     return parse_reply(Reply, _UNESCAPED_BACKSLASH_RE.sub(r"\\\\", text), operator="boundary batch")
 

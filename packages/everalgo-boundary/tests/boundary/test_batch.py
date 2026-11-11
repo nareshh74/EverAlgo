@@ -295,9 +295,9 @@ async def test_client_exception_propagates_unchanged() -> None:
 
 
 async def test_plain_text_response_falls_back_to_empty_boundaries() -> None:
-    """Non-JSON plain-text response without 'boundaries' falls back to no boundaries."""
+    """Non-JSON plain-text response explicitly indicating no boundary falls back to empty boundaries."""
     msgs = _dialogue(2)
-    fake = FakeLLMClient(responses=["not json at all"])
+    fake = FakeLLMClient(responses=["No boundaries found; single episode continues."])
 
     cuts = await adetect_batch(msgs, llm=fake)
 
