@@ -6,12 +6,15 @@ Each callsite makes one call and validates the reply against its model; there is
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from everalgo.llm import LLMMessage, StrictOutputModel, parse_reply
 
 if TYPE_CHECKING:
     from everalgo.llm.protocols import LLMClient
+
+_UNESCAPED_BACKSLASH_RE = re.compile(r'\\(?![/\"\\bfnrt]|u[0-9a-fA-F]{4})')
 
 
 class Reply(StrictOutputModel):
@@ -40,7 +43,9 @@ async def _call_llm_for_batch(llm: LLMClient, messages: list[LLMMessage]) -> Rep
         LLMOutputError: If the reply is not a valid batch output.
     """
     text = await llm.achat(messages=messages, response_format=Reply)
-    return parse_reply(Reply, text, operator="boundary batch")
+    if "{" not in text and "boundaries" not in text:
+        return Reply(reasoning="", boundaries=[])
+    return parse_reply(Reply, _UNESCAPED_BACKSLASH_RE.sub(r"\\\\", text), operator="boundary batch")
 
 
 async def _call_llm_for_step(llm: LLMClient, messages: list[LLMMessage]) -> _StepReply:
