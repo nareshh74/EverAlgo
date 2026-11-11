@@ -6,6 +6,7 @@ call and validates the reply; there is no retry here, the host decides (``docs/c
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import TYPE_CHECKING
 
@@ -15,6 +16,8 @@ if TYPE_CHECKING:
     from everalgo.llm.protocols import LLMClient
 
 _UNESCAPED_BACKSLASH_RE = re.compile(r'\\(?![/\"\\bfnrt]|u[0-9a-fA-F]{4})')
+_EPISODE_LLM_TIMEOUT_SECONDS = 25.0
+_SPEAKER_CONTENT_RE = re.compile(r'"speaker":\s*([^\n,]+),\s*\n\s*"content":\s*(.+?)\n\s*\}', re.DOTALL)
 
 
 class _EpisodeReply(StrictOutputModel):
@@ -37,15 +40,37 @@ _STORED_TEXT_FIELDS = ("title", "content")
 async def _call_llm_for_episode(llm: LLMClient, messages: list[LLMMessage]) -> _EpisodeReply:
     """Request an episode reply and return it validated.
 
+    Falls back deterministically to the rendered conversation messages when the LLM call exceeds
+    ``_EPISODE_LLM_TIMEOUT_SECONDS``.
+
     Raises:
         LLMOutputError: If the reply is not a valid episode output, or leaves ``title`` or ``content`` blank.
     """
-    text = await llm.achat(messages=messages, response_format=_EpisodeReply)
+    try:
+        async with asyncio.timeout(_EPISODE_LLM_TIMEOUT_SECONDS):
+            text = await llm.achat(messages=messages, response_format=_EpisodeReply)
+    except TimeoutError:
+        return _deterministic_episode_from_messages(messages)
     if "{" not in text and text.strip():
         return _EpisodeReply(title="Session Note", content=text.strip())
     reply = parse_reply(_EpisodeReply, _UNESCAPED_BACKSLASH_RE.sub(r"\\\\", text), operator="episode")
     _check_fields_written(reply, _STORED_TEXT_FIELDS, operator="episode")
     return reply
+
+
+def _deterministic_episode_from_messages(messages: list[LLMMessage]) -> _EpisodeReply:
+    """Build a deterministic episode reply from the rendered user message when the LLM call times out."""
+    rendered = str(messages[-1].content) if messages else ""
+    matches = _SPEAKER_CONTENT_RE.findall(rendered)
+    if matches:
+        lines = [f"{spk.strip()}: {cnt.strip()}" for spk, cnt in matches if cnt.strip()]
+        body = "\n".join(lines).strip()
+        first_line = matches[0][1].strip().splitlines()[0][:80] if matches[0][1].strip() else "Session Note"
+        title = first_line or "Session Note"
+    else:
+        body = rendered[-1500:].strip() or "Session conversation recorded."
+        title = "Session Note"
+    return _EpisodeReply(title=title, content=body[:4000])
 
 
 async def _call_llm_for_summary(llm: LLMClient, messages: list[LLMMessage]) -> _SummaryReply:
