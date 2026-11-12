@@ -285,13 +285,13 @@ check_business_rules(output)                       # 不过 → 抛 LLMOutputErr
 | **prompt 写明输出 JSON，并给可解析的示例** | 模型要靠 prompt 才知道该输出什么；实现方若不发格式参数，prompt 就是唯一的约束。发 JSON 模式时也必须写：openai SDK 2.35.1 的参数说明（`openai/types/beta/assistant_create_params.py:93-99`）要求另外在消息里让模型输出 JSON，否则模型可能输出 "unending stream of whitespace" 直到撞上 token 上限 | 渲染后的 prompt 含格式说明；示例能被对应模型 `model_validate_json` 通过 |
 | **模型只写结构约束** | 2.2 | 模型上没有自定义校验器 |
 | **模型（含嵌套子模型）继承 `StrictOutputModel`，字段不设默认值；例外须有意为之** | 2.2：否则算子拿到的东西随实现方的手段变化 | 遍历每个 `response_format` 模型及其全部子模型，断言都是 `StrictOutputModel` 的子类、没有字段带默认值；有例外的算子，单测覆盖「只靠 prompt」路径 |
-| **模型顶层是 object，且落在 strict 子集内** | 2.2 / 8.2 | 对每个 `response_format` 模型跑 `to_openai_response_format`，不抛错 |
+| **模型顶层是 object，且落在 strict 子集内** | 2.2 / 8.2 | 对每个 `response_format` 模型跑 `to_openai_response_format`，不抛错，且 schema 里每个值都声明了类型（`tests/test_reply_schemas.py`：没有类型的 `Any` 字段能通过构造函数，却会被上游拒收） |
 | **自己解析，失败与业务校验不过都抛 `LLMOutputError`，不抛裸 `ValueError`，不自行重试** | 4.1 / 第 5 节 | 算子单测 |
 | **实现方抛的异常原样透传，不包装、不改类型** | 宿主要靠自己的类型认出调用失败（2.5）。明确的降级点可以接住异常，但必须是有意为之 | 算子单测：替身抛一个自定义异常，断言它原样冒出来 |
 
 示例：reflect 的两个 prompt（`everalgo.user_memory.prompts.en.reflect`）都写了 "Reply with one JSON object, nothing else."
 
-例外：边界检测逐条判断 prompt 的 `<reply_format>`（`everalgo.boundary.prompts.en.chat.STEP_BOUNDARY_DETECT_SYSTEM_PROMPT`）沿用 EverAlgo LoCoMo 参考运行的那句话和字段说明，只保留前两个字段 `reasoning` 和 `should_end`（`"should_end": true/false`），这段说明不能被解析。试过的每一种示例回复都会让逐条判断偏离参考运行；模块文档字符串写明了这一点，并有单元测试防止示例被加回去。去掉参考运行的 `confidence` 和 `topic_summary` 是经过测量、有意偏离参考运行的改动（LoCoMo 分数没有可测出的差别，输出 token 更少），不是对本契约的例外。
+例外：边界检测逐条判断 prompt 的 `<reply_format>`（`everalgo.boundary.prompts.en.chat.STEP_BOUNDARY_DETECT_SYSTEM_PROMPT`）沿用 EverAlgo LoCoMo 参考运行的那句话和字段说明，只保留前两个字段 `reasoning` 和 `should_end`（`"should_end": true/false`），`reasoning` 的说明改为不超过 25 个词的一句话，这段说明不能被解析。试过的每一种示例回复都会让逐条判断偏离参考运行；模块文档字符串写明了这一点，并有单元测试防止示例被加回去。去掉参考运行的 `confidence` 和 `topic_summary`、改写 `reasoning` 的说明，都是经过测量、有意偏离参考运行的改动（输出 token 更少，见 boundary 的 CHANGELOG），不是对本契约的例外。
 
 例外：episode prompt（`everalgo.user_memory.prompts.en.episode`）发送的内容与 EverAlgo LoCoMo 参考运行一致，因此有三处与其他算子的 prompt 不同。回复是 `{"title", "content"}`，没有 `summary`：Episode 的 summary 由代码截取 content 的前 200 个字符。不传 `custom_instructions` 时，`<custom_instructions>` 里放参考运行的 5 条默认原则，而不是省略这个块。user 消息在数据之后以一个固定的 `<reminder>` 块收尾（按每条规则写 episode、每个相对时间给出绝对日期、保留每个事实），这是对「user 消息只放数据」的例外：规则只出现在数据之前时，模型遵守得更少（LoCoMo 上 80 段对话的试写）。system 消息不变，提示缓存的前缀也就不受影响。模块文档字符串写明了这三点，并有单元测试守住。
 

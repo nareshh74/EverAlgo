@@ -34,6 +34,8 @@ from everalgo.user_memory.profile._render import _render_episodes, _render_item,
 from everalgo.user_memory.profile._replies import (
     _call_llm_for_profile_init,
     _call_llm_for_profile_update,
+    _EpisodeExplicitItem,
+    _EpisodeImplicitTrait,
     _EpisodeInitOutput,
     _ExplicitItem,
     _ImplicitTrait,
@@ -1948,7 +1950,13 @@ def test_every_item_skeleton_lists_grounding_first_and_label_last(prompt: str) -
         system = render_prompt(prompt, None, **{**_RENDER_FIELDS, "reply_skeleton": REGROUP_REPLY_SKELETONS[bucket]})
         for block in _line_start_json_blocks(system):
             for item in _items_in(json.loads(block)):
-                assert list(item) in (list(_ExplicitItem.model_fields), list(_ImplicitTrait.model_fields)), item
+                assert list(item) in _ITEM_FIELD_ORDERS, item
+
+
+# The plain items, and the Episode replies' items with every reply-only field written in schema order.
+_ITEM_FIELD_ORDERS = tuple(
+    list(model.model_fields) for model in (_ExplicitItem, _ImplicitTrait, _EpisodeExplicitItem, _EpisodeImplicitTrait)
+)
 
 
 def _items_in(reply: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1966,16 +1974,21 @@ def test_output_item_models_declare_grounding_first() -> None:
     assert list(_ImplicitTrait.model_fields) == ["basis", "description", "trait"]
 
 
-def test_how_to_update_holds_eight_unnumbered_requirements() -> None:
+def test_how_to_update_holds_ten_unnumbered_requirements() -> None:
     paragraphs = _HOW_TO_UPDATE.split("\n\n")
 
-    # Six grew to eight: a change in a standing situation sweeps every stored item it makes untrue, and a request
-    # not to record something is a forget operation.
-    assert len(paragraphs) == 8
+    # Six grew to ten: a change in a standing situation sweeps every stored item it makes untrue, a request not to
+    # record something is a forget operation, a listed matter stays out until its request is withdrawn, and a
+    # withdrawal is an allow operation.
+    assert len(paragraphs) == 10
     assert paragraphs[4].startswith("A change in a standing situation")
     assert paragraphs[5].startswith(
-        "When this person asks that something not be recorded or remembered, reply with a forget operation"
+        "When this person asks that something not be recorded or remembered from now on, reply with a forget operation"
     )
+    assert paragraphs[6].startswith(
+        "A matter listed in <do_not_record> stays out until this person withdraws the request"
+    )
+    assert paragraphs[7].startswith("This person withdraws a request in one of two ways")
     assert paragraphs[0].startswith("add or update is decided by the fact, not the wording.")
     assert paragraphs[-1].startswith("Newer state stands; older narratives only add to it.")
     assert paragraphs[-1].endswith("leave observed_at to the system.")
@@ -2097,7 +2110,8 @@ def test_update_reply_format_says_only_what_index_means() -> None:
     assert "\n\nOne or more operations:\n{" in reply_format
     expected_update = (
         '{"action": "update", "type": "explicit_info", "index": 0, '
-        '"data": {"evidence": "...", "description": "...", "category": "..."}}'
+        '"data": {"evidence": "...", "description": "...", "category": "...", "pattern": false, "pending": null, '
+        '"quote": "...", "regular": ""}}'
     )
     assert expected_update in reply_format
 
@@ -2108,9 +2122,13 @@ def test_init_reply_format_allows_an_empty_profile() -> None:
     # The reply now also carries do_not_record, so the format says when it is filled and that it is empty otherwise.
     assert reply_format.startswith(
         "Both lists may be empty when the narratives carry nothing about this person. When this person asks that "
-        "something not be recorded or remembered, list the matter in do_not_record, named in a few words as narrowly "
-        "as they meant it, with its evidence, and write no item about it; the system keeps the list for every later "
-        "update. do_not_record is empty otherwise. "
+        "something not be recorded or remembered from now on, list the matter in do_not_record, named in a few words "
+        'as narrowly as they meant it, with "quote": the words of the request copied character for character from '
+        "the narrative, 10 to 60 characters; write no item about it. The system looks for the quote and keeps a "
+        "matter it finds for every later update. Only their own request counts: one that someone else makes for "
+        "them, or that is said as a joke, lists nothing. A request for this one time or for now (\"don't write this "
+        'down yet", "leave it out this time") is not listed, and no item about the matter is written; a request they '
+        "withdraw later in these narratives is not listed either. do_not_record is empty otherwise. "
         "Reply with one JSON object, nothing else. Write each item's fields in the order shown, evidence or basis "
         "first.\n\n"
     )
@@ -2308,7 +2326,7 @@ async def test_every_example_reply_parses_and_passes_its_stage_reply_model(
     for text in replies:
         assert isinstance(json.loads(text), dict)
         validated = await callsite(FakeLLMClient(responses=[text]), [], reply=reply)
-        assert _without_unset_reply_fields(validated) == json.loads(text)
+        assert _without_unset_reply_fields(validated) == _without_unset_reply_fields(json.loads(text))
 
 
 def _without_unset_reply_fields(value: Any) -> Any:

@@ -13,14 +13,33 @@ The table tracks the current version declared in each `packages/everalgo-*/pypro
 
 | Distribution | Version | Changelog |
 |---|---|---|
-| `everalgo-core` | 0.7.0rc1 | [packages/everalgo-core/CHANGELOG.md](packages/everalgo-core/CHANGELOG.md) |
-| `everalgo-boundary` | 0.5.0rc1 | [packages/everalgo-boundary/CHANGELOG.md](packages/everalgo-boundary/CHANGELOG.md) |
+| `everalgo-core` | 0.7.0 | [packages/everalgo-core/CHANGELOG.md](packages/everalgo-core/CHANGELOG.md) |
+| `everalgo-boundary` | 0.5.0 | [packages/everalgo-boundary/CHANGELOG.md](packages/everalgo-boundary/CHANGELOG.md) |
 | `everalgo-clustering` | 0.3.0rc2 | [packages/everalgo-clustering/CHANGELOG.md](packages/everalgo-clustering/CHANGELOG.md) |
 | `everalgo-rank` | 0.5.0rc5 | [packages/everalgo-rank/CHANGELOG.md](packages/everalgo-rank/CHANGELOG.md) |
-| `everalgo-user-memory` | 0.9.0rc6 | [packages/everalgo-user-memory/CHANGELOG.md](packages/everalgo-user-memory/CHANGELOG.md) |
+| `everalgo-user-memory` | 0.9.0rc8 | [packages/everalgo-user-memory/CHANGELOG.md](packages/everalgo-user-memory/CHANGELOG.md) |
 | `everalgo-agent-memory` | 0.6.0rc4 | [packages/everalgo-agent-memory/CHANGELOG.md](packages/everalgo-agent-memory/CHANGELOG.md) |
 | `everalgo-parser` | 0.3.0rc2 | [packages/everalgo-parser/CHANGELOG.md](packages/everalgo-parser/CHANGELOG.md) |
 | `everalgo-knowledge` | 0.3.0rc2 | [packages/everalgo-knowledge/CHANGELOG.md](packages/everalgo-knowledge/CHANGELOG.md) |
+
+## Coordinated release — 2026-11-13 (core 0.7.0, boundary 0.5.0)
+
+Two distributions leave release candidate: `everalgo-core` 0.7.0rc1 becomes 0.7.0 unchanged, and `everalgo-boundary` becomes 0.5.0. Boundary's reply is shorter on both paths. Both role sentences ask whether a message starts a new episode, and `reasoning` is one sentence of at most 25 words, which cuts the median batch reply from 299 to 38–78 output tokens on qwen3-4b-instruct-2507. On LoCoMo the score is unchanged within noise. Boundary's core floor is raised from `>=0.7.0rc1` to the final `>=0.7.0`, so a resolver no longer picks a core release candidate for it. The other six distributions have no change and keep their versions; their core floors (`>=0.7.0rc1` for agent-memory, rank and user-memory) and boundary floors (`>=0.5.0rc1` for agent-memory and user-memory) are already met by these releases.
+
+| Distribution | Version | Bump |
+|---|---|---|
+| `everalgo-core` | 0.7.0 | 0.7.0rc1 promoted unchanged |
+| `everalgo-boundary` | 0.5.0 | shorter replies on both paths; core floor `>=0.7.0` |
+
+Detail in [packages/everalgo-core/CHANGELOG.md](packages/everalgo-core/CHANGELOG.md) and [packages/everalgo-boundary/CHANGELOG.md](packages/everalgo-boundary/CHANGELOG.md).
+
+## [everalgo-user-memory/0.9.0rc8] - 2026-11-12
+
+Episode-path profile calls no longer stall under strict structured outputs: the INIT and UPDATE reply skeletons and worked examples now write every reply-only field in schema order, so a model no longer ends an item early and emits whitespace until `max_tokens` (about 1 call in 15 on 0.9.0rc7 with `gpt-4.1-mini`; 0 of 27 after). Prompt examples only; no API or dependency floor changes. Detail in [packages/everalgo-user-memory/CHANGELOG.md](packages/everalgo-user-memory/CHANGELOG.md).
+
+## [everalgo-user-memory/0.9.0rc7] - 2026-11-12
+
+Episode-path profile calls work under strict structured outputs again: in 0.9.0rc6 the INIT and UPDATE reply schemas carried untyped fields, which OpenAI refuses with a 400, so every such call failed there; the fields now declare their types while validation stays as tolerant as before, and a repository test holds every reply model's strict schema to typed values. The do-not-record list also grows up: **breaking**, an entry needs a `quote` found in the batch (INIT's entries and UPDATE's `forget` are `{"topic", "quote"}`), is dated by the narrative holding it and is stored as `{"topic", "observed_at"}` plus `except`, without `evidence`; the returned `do_not_record` is the whole list, which the host stores in place of the old one. A new UPDATE `allow` operation withdraws a matter or a part of it, and past 30 entries one extra call merges redundant ones. No dependency floor changes. Detail in [packages/everalgo-user-memory/CHANGELOG.md](packages/everalgo-user-memory/CHANGELOG.md).
 
 ## [everalgo-user-memory/0.9.0rc6] - 2026-11-12
 
